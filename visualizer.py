@@ -94,7 +94,57 @@ def generate_plots():
     plt.savefig("outputs/timeline_scatter.png", dpi=300)
     plt.close()
 
-    print("Successfully generated all plots in outputs/ directory.")
+    # 4. Average Duration (Bar Chart)
+    plt.figure(figsize=(8, 6))
+    sns.barplot(
+        data=completed_df,
+        x="scheduler_type",
+        y="actual_duration",
+        hue="scheduler_type",
+        legend=False,
+        palette="viridis",
+        errorbar=None
+    )
+    plt.title("Average Task Execution Duration")
+    plt.xlabel("Scheduler Type")
+    plt.ylabel("Average Actual Duration")
+    plt.tight_layout()
+    plt.savefig("outputs/plots/avg_duration.png", dpi=300)
+    plt.close()
+
+    # 5. Cluster Distribution (Count Plot)
+    plt.figure(figsize=(10, 6))
+    sns.countplot(
+        data=completed_df,
+        x="cluster_id",
+        hue="scheduler_type",
+        palette="Set2"
+    )
+    plt.title("Task Distribution Across Clusters")
+    plt.xlabel("Cluster ID")
+    plt.ylabel("Task Count")
+    plt.legend(title="Scheduler Type")
+    plt.tight_layout()
+    plt.savefig("outputs/plots/cluster_distribution.png", dpi=300)
+    plt.close()
+
+    # 6. Status Distribution (Count Plot including TIMEOUTs)
+    plt.figure(figsize=(8, 6))
+    sns.countplot(
+        data=df,
+        x="status",
+        hue="scheduler_type",
+        palette="muted"
+    )
+    plt.title("Task Status Distribution")
+    plt.xlabel("Status")
+    plt.ylabel("Task Count")
+    plt.legend(title="Scheduler Type")
+    plt.tight_layout()
+    plt.savefig("outputs/plots/status_distribution.png", dpi=300)
+    plt.close()
+
+    print("Successfully generated all plots in outputs/ and outputs/plots/ directory.")
 
 if __name__ == "__main__":
     generate_plots()
