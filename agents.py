@@ -127,8 +127,8 @@ class InterferenceModel:
             float: The calculated slowdown factor.
         """
         if cluster_state_index == 2:
-            return 1.2
-        elif cluster_state_index == 3:
             return 1.5
+        elif cluster_state_index == 3:
+            return 2.0
         else:
             return 1.0

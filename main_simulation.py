@@ -19,6 +19,9 @@ SCHEMA_CONFIG = {
     'duration': 'duration'
 }
 
+BOTTLENECK_CPU = 25000
+BOTTLENECK_GPU = 25000
+
 def setup_outputs_dir():
     os.makedirs("outputs", exist_ok=True)
 
@@ -66,19 +69,29 @@ def task_execution_process(env, task, clusters, scheduler, results_list, schedul
     Process 3: Task Execution lifecycle.
     Evaluates placement, allocates resources, computes load interference, and evaluates timeout.
     """
-    assigned_cluster = scheduler.schedule(task)
+    WAIT_STEP = 5
+    assigned_cluster = None
 
-    if assigned_cluster is None:
-        results_list.append({
-            'task_id': task.task_id,
-            'scheduler_type': scheduler_type,
-            'cluster_id': None,
-            'submit_time': task.submit_time,
-            'wait_time': 0,
-            'actual_duration': 0,
-            'status': 'DROPPED'
-        })
-        return
+    while True:
+        assigned_cluster = scheduler.schedule(task)
+        if assigned_cluster is not None:
+            break
+
+        yield env.timeout(WAIT_STEP)
+        wait_time = env.now - task.sim_arrival_time
+
+        if wait_time > task.max_latency:
+            task.state = 'TIMEOUT'
+            results_list.append({
+                'task_id': task.task_id,
+                'scheduler_type': scheduler_type,
+                'cluster_id': None,
+                'submit_time': task.submit_time,
+                'wait_time': wait_time,
+                'actual_duration': 0,
+                'status': task.state
+            })
+            return
 
     assigned_cluster.allocate(task)
     task.start_time = env.now
@@ -87,11 +100,11 @@ def task_execution_process(env, task, clusters, scheduler, results_list, schedul
     current_cluster_state = assigned_cluster.bg_load_generator.current_state
     slowdown_factor = InterferenceModel.get_slowdown_factor(current_cluster_state)
     actual_duration = task.base_duration * slowdown_factor
+    wait_time = task.start_time - task.sim_arrival_time
 
     yield env.timeout(actual_duration)
 
     task.end_time = env.now
-    wait_time = task.start_time - task.sim_arrival_time
 
     if wait_time + actual_duration > task.max_latency:
         task.state = 'TIMEOUT'
@@ -121,7 +134,7 @@ def run_simulation(scheduler_type="baseline", sim_time=1440, task_limit=None):
     clusters = []
     for i in range(4):
         bg_generator = MarkovClusterGenerator(transition_matrix)
-        cluster = ClusterAgent(cluster_id=i, bg_load_generator=bg_generator, cpu_total=100000, gpu_total=100000)
+        cluster = ClusterAgent(cluster_id=i, bg_load_generator=bg_generator, cpu_total=BOTTLENECK_CPU, gpu_total=BOTTLENECK_GPU)
         clusters.append(cluster)
 
     if scheduler_type == "baseline":
