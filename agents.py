@@ -2,67 +2,67 @@ import markov_env
 
 class ClusterAgent:
     """
-    集群切片智能体，代表聚合后的资源池。
-    管理总资源、可用资源，并包含背景负载生成器。
+    Represents a compute cluster resource pool.
+    Manages total resources, available resources, and background load.
     """
     def __init__(self, cluster_id, bg_load_generator, cpu_total=10000, gpu_total=10000):
         """
-        初始化 ClusterAgent。
+        Initialize the ClusterAgent.
 
-        参数:
-        - cluster_id: 集群ID
-        - bg_load_generator: markov_env.MarkovClusterGenerator 实例，用于预测背景负载状态
-        - cpu_total: 总CPU核数（默认10000）
-        - gpu_total: 总GPU核数（默认10000）
+        Args:
+            cluster_id (int): Identifier for the cluster.
+            bg_load_generator (MarkovClusterGenerator): Instance to predict background load.
+            cpu_total (int): Total CPU cores available. Defaults to 10000.
+            gpu_total (int): Total GPU cores available. Defaults to 10000.
         """
         self.cluster_id = cluster_id
         self.cpu_total = cpu_total
         self.gpu_total = gpu_total
 
-        # 初始时，可用资源等于总资源
         self.cpu_available = cpu_total
         self.gpu_available = gpu_total
 
-        # 内部持有 MarkovClusterGenerator 实例
         self.bg_load_generator = bg_load_generator
 
     def can_accept(self, task):
         """
-        判断当前可用资源是否满足任务需求。
+        Check if the cluster has enough available resources to accept the task.
 
-        参数:
-        - task: DigitalTwinTaskAgent 实例，代表待分配的任务
+        Args:
+            task (DigitalTwinTaskAgent): The task to evaluate.
 
-        返回:
-        - True 如果可用资源足够，否则 False
+        Returns:
+            bool: True if resources are sufficient, False otherwise.
         """
         return (self.cpu_available >= task.cpu_req) and (self.gpu_available >= task.gpu_req)
 
     def allocate(self, task):
         """
-        分配资源给任务，从当前可用资源中扣除任务所需的资源。
-        调用前建议先通过 can_accept 检查资源是否充足。
+        Allocate resources for the given task.
 
-        参数:
-        - task: DigitalTwinTaskAgent 实例
+        Args:
+            task (DigitalTwinTaskAgent): The task to allocate resources for.
+
+        Raises:
+            ValueError: If the cluster lacks sufficient resources for allocation.
         """
         if self.can_accept(task):
             self.cpu_available -= task.cpu_req
             self.gpu_available -= task.gpu_req
         else:
-            raise ValueError(f"Cluster {self.cluster_id} 资源不足，无法分配给任务 {task.task_id}")
+            raise ValueError(f"Cluster {self.cluster_id} has insufficient resources for task {task.task_id}")
 
     def release(self, task):
         """
-        任务完成时归还资源，将任务所占用的资源加回当前可用资源中。
+        Release resources previously allocated to a task.
 
-        参数:
-        - task: DigitalTwinTaskAgent 实例
+        Args:
+            task (DigitalTwinTaskAgent): The completed task whose resources are to be released.
         """
         self.cpu_available += task.cpu_req
         self.gpu_available += task.gpu_req
 
-        # 防御性编程，确保释放资源后不超过总资源限制
+        # Ensure we do not release more resources than initially configured
         if self.cpu_available > self.cpu_total:
             self.cpu_available = self.cpu_total
         if self.gpu_available > self.gpu_total:
@@ -70,28 +70,28 @@ class ClusterAgent:
 
     def step_background_load(self):
         """
-        更新并返回当前背景负载状态。
+        Advance the background load state.
 
-        返回:
-        - 生成的背景负载状态索引
+        Returns:
+            int: The new background load state index.
         """
         return self.bg_load_generator.step()
 
 class DigitalTwinTaskAgent:
     """
-    数字孪生任务智能体，代表系统中的每一个计算任务。
-    包含任务的基本需求、时间属性以及执行状态。
+    Represents an individual compute task within the digital twin system.
+    Tracks resource requirements, timing details, and execution state.
     """
     def __init__(self, task_id, submit_time, cpu_req, gpu_req, base_duration):
         """
-        初始化 DigitalTwinTaskAgent。
+        Initialize the DigitalTwinTaskAgent.
 
-        参数:
-        - task_id: 任务唯一标识
-        - submit_time: 任务提交时间
-        - cpu_req: 任务所需 CPU 资源
-        - gpu_req: 任务所需 GPU 资源
-        - base_duration: 基础执行时长
+        Args:
+            task_id (str): Unique task identifier.
+            submit_time (float): The time the task was submitted.
+            cpu_req (float): CPU cores required.
+            gpu_req (float): GPU cores required.
+            base_duration (float): Base execution time without interference.
         """
         self.task_id = task_id
         self.submit_time = submit_time
@@ -99,34 +99,32 @@ class DigitalTwinTaskAgent:
         self.gpu_req = gpu_req
         self.base_duration = base_duration
 
-        # max_latency 代表虚实同步新鲜度约束，设为 base_duration 的 1.5 倍
+        # max_latency imposes a deadline for task freshness (1.5x base duration)
         self.max_latency = base_duration * 1.5
 
-        # 初始状态设为 'WAITING'
-        # 可选状态: 'WAITING', 'RUNNING', 'COMPLETED', 'TIMEOUT'
+        # Valid states: 'WAITING', 'RUNNING', 'COMPLETED', 'TIMEOUT'
         self.state = 'WAITING'
 
-        # 初始时间戳均设为 None
         self.start_time = None
         self.end_time = None
 
 class InterferenceModel:
     """
-    干扰计算器，用于根据背景负载状态计算任务执行的变慢系数。
+    Calculates the performance degradation (slowdown factor) due to background load.
     """
     @staticmethod
     def get_slowdown_factor(cluster_state_index):
         """
-        传入 Cluster 的背景状态索引，返回任务变慢系数。
+        Determine the task slowdown factor based on the cluster's current load state.
 
-        参数:
-        - cluster_state_index: 背景负载状态索引
-          - 2 (High): 返回 1.2（变慢 20%）
-          - 3 (Overload): 返回 1.5（变慢 50%）
-          - 其他: 返回 1.0（正常速度）
+        Args:
+            cluster_state_index (int): Index of the background load state.
+                - 2 (High): Returns 1.2 (20% slowdown)
+                - 3 (Overload): Returns 1.5 (50% slowdown)
+                - Other: Returns 1.0 (no slowdown)
 
-        返回:
-        - 变慢系数值 (float)
+        Returns:
+            float: The calculated slowdown factor.
         """
         if cluster_state_index == 2:
             return 1.2
