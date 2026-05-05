@@ -1,73 +1,100 @@
-"""
-Visualization module for Multi-Agent Digital Twin Simulation results.
-Generates charts and metrics based on simulation output.
-"""
-
-import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
 
-def create_visualizations(results_csv="outputs/sim_results.csv", output_dir="outputs/plots"):
-    """
-    Reads the simulation results CSV and creates visual comparisons
-    between the baseline and MAS schedulers.
-    """
-    if not os.path.exists(results_csv):
-        print(f"Error: {results_csv} not found. Run simulation first.")
-        return
-
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+def generate_plots():
+    # Set seaborn style for academic look
+    sns.set_theme(style="whitegrid", context="paper", font_scale=1.2)
 
     # Load data
-    df = pd.read_csv(results_csv)
-    print(f"Loaded {len(df)} simulation records for visualization.")
+    df = pd.read_csv("outputs/sim_results.csv")
 
-    # 1. Status Distribution (COMPLETED vs TIMEOUT)
-    plt.figure(figsize=(10, 6))
-    status_counts = df.groupby(['scheduler_type', 'status']).size().unstack(fill_value=0)
+    # Ensure outputs directory exists
+    os.makedirs("outputs", exist_ok=True)
 
-    if not status_counts.empty:
-        status_counts.plot(kind='bar', stacked=True, color=['#4CAF50', '#F44336'])
-        plt.title('Task Status Distribution by Scheduler')
-        plt.xlabel('Scheduler Type')
-        plt.ylabel('Number of Tasks')
-        plt.xticks(rotation=0)
-        plt.legend(title='Status')
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, 'status_distribution.png'))
-        plt.close()
-        print(f"Generated {output_dir}/status_distribution.png")
+    # Only COMPLETED tasks for duration plots
+    completed_df = df[df['status'] == 'COMPLETED']
 
-    # 2. Average Actual Duration Comparison
-    plt.figure(figsize=(10, 6))
-    sns.barplot(x='scheduler_type', y='actual_duration', data=df, errorbar=None, hue='scheduler_type', legend=False)
-    plt.title('Average Actual Task Duration by Scheduler')
-    plt.xlabel('Scheduler Type')
-    plt.ylabel('Average Actual Duration (Ticks)')
+    # 1. Delay Distribution (Violin Plot)
+    plt.figure(figsize=(8, 6))
+    sns.violinplot(
+        data=completed_df,
+        x="scheduler_type",
+        y="actual_duration",
+        hue="scheduler_type",
+        legend=False,
+        palette="muted",
+        inner="quartile"
+    )
+    plt.title("Task Execution Delay Distribution")
+    plt.xlabel("Scheduler Type")
+    plt.ylabel("Actual Duration")
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'avg_duration.png'))
+    plt.savefig("outputs/delay_distribution.png", dpi=300)
     plt.close()
-    print(f"Generated {output_dir}/avg_duration.png")
 
-    # 3. Task Distribution Across Clusters
-    plt.figure(figsize=(12, 6))
-    cluster_dist = df.groupby(['scheduler_type', 'cluster_id']).size().unstack(fill_value=0)
+    # 2. Timeout Rate (Bar Chart)
+    # Calculate timeout rate per scheduler
+    total_tasks = df.groupby('scheduler_type').size()
+    timeout_tasks = df[df['status'] == 'TIMEOUT'].groupby('scheduler_type').size()
 
-    if not cluster_dist.empty:
-        cluster_dist.plot(kind='bar', colormap='viridis')
-        plt.title('Task Distribution Across Clusters')
-        plt.xlabel('Scheduler Type')
-        plt.ylabel('Number of Tasks Assigned')
-        plt.xticks(rotation=0)
-        plt.legend(title='Cluster ID')
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, 'cluster_distribution.png'))
-        plt.close()
-        print(f"Generated {output_dir}/cluster_distribution.png")
+    # Handle case where there are no timeouts
+    if timeout_tasks.empty:
+        timeout_rates = pd.Series(0, index=total_tasks.index)
+    else:
+        timeout_rates = (timeout_tasks / total_tasks * 100).fillna(0)
 
-    print("\nVisualization generation complete!")
+    # Create DataFrame for plotting
+    timeout_df = timeout_rates.reset_index(name='timeout_rate')
+
+    plt.figure(figsize=(8, 6))
+    ax = sns.barplot(
+        data=timeout_df,
+        x="scheduler_type",
+        y="timeout_rate",
+        hue="scheduler_type",
+        legend=False,
+        palette="pastel"
+    )
+    plt.title("Task Timeout Rate")
+    plt.xlabel("Scheduler Type")
+    plt.ylabel("Timeout Rate (%)")
+
+    # Add percentage labels on top of bars
+    for p in ax.patches:
+        height = p.get_height()
+        ax.annotate(f'{height:.2f}%',
+                    xy=(p.get_x() + p.get_width() / 2, height),
+                    xytext=(0, 3),  # 3 points vertical offset
+                    textcoords="offset points",
+                    ha='center', va='bottom')
+
+    plt.tight_layout()
+    plt.savefig("outputs/timeout_rate.png", dpi=300)
+    plt.close()
+
+    # 3. Timeline Stability (Scatter Plot)
+    plt.figure(figsize=(10, 6))
+    sns.scatterplot(
+        data=completed_df,
+        x="submit_time",
+        y="actual_duration",
+        hue="scheduler_type",
+        palette="deep",
+        alpha=0.6,
+        s=30,
+        edgecolor=None
+    )
+    plt.title("Timeline Stability under Fluctuation")
+    plt.xlabel("Submit Time")
+    plt.ylabel("Actual Duration")
+    plt.legend(title="Scheduler Type")
+    plt.tight_layout()
+    plt.savefig("outputs/timeline_scatter.png", dpi=300)
+    plt.close()
+
+    print("Successfully generated all plots in outputs/ directory.")
 
 if __name__ == "__main__":
-    create_visualizations()
+    generate_plots()

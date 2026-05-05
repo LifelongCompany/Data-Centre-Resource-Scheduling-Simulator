@@ -18,23 +18,21 @@ def get_state(cpu_usage):
 def compute_transition_matrix(csv_path="data/sample_metrics.csv"):
     df = pd.read_csv(csv_path)
 
-    # Defensive check for cpu_usage
+    # Normalize CPU usage if bounded between 0 and 1
     max_cpu = df['cpu_usage'].max()
     if max_cpu > 0 and max_cpu <= 1.0:
         df['cpu_usage'] = df['cpu_usage'] * 100.0
 
     df['cluster_id'] = df['machine_sn'].apply(get_cluster_id)
 
-    # Sort by timestamp to ensure chronological order
+    # Ensure chronological order for transition calculations
     df = df.sort_values(by=['timestamp'])
 
-    # Group by cluster_id and timestamp to get mean cpu_usage
+    # Aggregate mean cpu_usage by cluster_id and timestamp
     agg_df = df.groupby(['cluster_id', 'timestamp'])['cpu_usage'].mean().reset_index()
 
-    # Map mean cpu_usage to states
     agg_df['state'] = agg_df['cpu_usage'].apply(get_state)
 
-    # Compute transition matrix
     num_states = 4
     transition_counts = np.zeros((num_states, num_states))
 
@@ -46,37 +44,40 @@ def compute_transition_matrix(csv_path="data/sample_metrics.csv"):
             next_state = states[i+1]
             transition_counts[curr_state, next_state] += 1
 
-    # Convert counts to probabilities
     transition_matrix = np.zeros((num_states, num_states))
     for i in range(num_states):
         row_sum = np.sum(transition_counts[i, :])
         if row_sum > 0:
             transition_matrix[i, :] = transition_counts[i, :] / row_sum
         else:
-            # Self-loop for empty states
             transition_matrix[i, i] = 1.0
 
     return transition_matrix
 
 class MarkovClusterGenerator:
+    """
+    Simulates background load transitions for a cluster based on a given Markov transition matrix.
+    """
     def __init__(self, transition_matrix):
         self.transition_matrix = transition_matrix
-        self.current_state = 1  # Start at Normal state (index 1)
+        # Default starting state is Normal (index 1)
+        self.current_state = 1
 
     def step(self):
+        """
+        Advance the background load to the next state based on the transition probabilities.
+        """
         probs = self.transition_matrix[self.current_state]
         self.current_state = np.random.choice(4, p=probs)
         return self.current_state
 
     def predict_future_state(self, steps):
-        # one-hot encoding of current state
+        """
+        Predict the probability distribution of future states after a given number of steps.
+        """
         v = np.zeros(4)
         v[self.current_state] = 1.0
-
-        # P^steps
         P_steps = np.linalg.matrix_power(self.transition_matrix, steps)
-
-        # future probability distribution
         return np.dot(v, P_steps)
 
 if __name__ == "__main__":
